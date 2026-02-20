@@ -1,6 +1,7 @@
 package postprocess
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"log"
@@ -8,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/nwaples/rardecode/v2"
 
@@ -58,6 +61,59 @@ func rarVersion(path string) int {
 	return 0
 }
 
+// ProgressFunc is called during extraction with the current percentage (0–100) and the filename being extracted.
+type ProgressFunc func(pct float64, file string)
+
+// countingWriter wraps an io.Writer and calls onPct each time the written percentage advances.
+type countingWriter struct {
+	w       io.Writer
+	total   int64
+	written int64
+	lastPct int64
+	onPct   func(float64)
+}
+
+func (cw *countingWriter) Write(p []byte) (int, error) {
+	n, err := cw.w.Write(p)
+	if n > 0 && cw.total > 0 && cw.onPct != nil {
+		cw.written += int64(n)
+		pct := cw.written * 100 / cw.total
+		if pct > 100 {
+			pct = 100
+		}
+		if pct != atomic.LoadInt64(&cw.lastPct) {
+			atomic.StoreInt64(&cw.lastPct, pct)
+			cw.onPct(float64(pct))
+		}
+	}
+	return n, err
+}
+
+// parseUnrarLine parses a line from unrar stdout and returns (pct, filename).
+// Returns (-1, "") if the line is not a progress line.
+func parseUnrarLine(line string) (float64, string) {
+	t := strings.TrimSpace(line)
+	if !strings.HasPrefix(t, "Extracting") && !strings.HasPrefix(t, "...") {
+		return -1, ""
+	}
+	fields := strings.Fields(t)
+	if len(fields) < 2 {
+		return -1, ""
+	}
+	last := fields[len(fields)-1]
+	if !strings.HasSuffix(last, "%") {
+		return -1, ""
+	}
+	var pct float64
+	if _, err := fmt.Sscanf(strings.TrimSuffix(last, "%"), "%f", &pct); err != nil {
+		return -1, ""
+	}
+	if len(fields) >= 3 {
+		return pct, filepath.Base(strings.Join(fields[1:len(fields)-1], " "))
+	}
+	return pct, ""
+}
+
 // Processor handles post-processing of completed downloads.
 type Processor struct {
 	cfg      *config.Config
@@ -106,15 +162,30 @@ func (p *Processor) Process(dl *queue.Download) {
 		log.Printf("Error finding archives: %v", err)
 	}
 
+	extractStart := time.Now()
+	onProgress := ProgressFunc(func(pct float64, file string) {
+		p.queueMgr.SetExtractProgress(dl.ID, pct, file)
+	})
+
 	extractOK := true
 	if len(archives) > 0 {
 		for _, archive := range archives {
-			if err := p.extractArchive(archive, destDir, archivePassword); err != nil {
+			if err := p.extractArchive(archive, destDir, archivePassword, onProgress); err != nil {
 				log.Printf("Extraction failed for %s: %v", filepath.Base(archive), err)
 				extractOK = false
 				break
 			}
 		}
+
+		if extractOK {
+			elapsed := time.Since(extractStart).Seconds()
+			approxMB := float64(dl.TotalBytes) / 1024 / 1024
+			if elapsed > 0 {
+				log.Printf("Extraction complete: ~%.0f MB in %.1fs (~%.1f MB/s) for %s",
+					approxMB, elapsed, approxMB/elapsed, dl.Name)
+			}
+		}
+		p.queueMgr.ClearExtractProgress(dl.ID)
 
 		if extractOK {
 			// Delete archives only after successful extraction
@@ -165,11 +236,11 @@ func (p *Processor) Process(dl *queue.Download) {
 	log.Printf("Post-processing complete: %s -> %s", dl.Name, destDir)
 }
 
-func (p *Processor) extractArchive(archivePath, destDir, password string) error {
+func (p *Processor) extractArchive(archivePath, destDir, password string, onProgress ProgressFunc) error {
 	ext := strings.ToLower(filepath.Ext(archivePath))
 	switch ext {
 	case ".rar":
-		return p.extractRar(archivePath, destDir, password)
+		return p.extractRar(archivePath, destDir, password, onProgress)
 	case ".zip", ".7z":
 		return p.extract7z(archivePath, destDir)
 	default:
@@ -177,46 +248,76 @@ func (p *Processor) extractArchive(archivePath, destDir, password string) error 
 	}
 }
 
+// extractRarUnrar runs unrar with live stdout progress parsing.
+func (p *Processor) extractRarUnrar(unrar, archivePath, destDir, password string, onProgress ProgressFunc) error {
+	passFlag := "-p-"
+	if password != "" {
+		passFlag = "-p" + password
+	}
+	cmd := exec.Command(unrar, "x", "-o+", "-y", passFlag, archivePath, destDir+"/")
+	cmd.Stderr = os.Stderr
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("unrar stdout pipe: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("starting unrar: %w", err)
+	}
+	var lastFile string
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		line := scanner.Text()
+		log.Printf("[unrar] %s", line)
+		if onProgress != nil {
+			pct, file := parseUnrarLine(line)
+			if file != "" {
+				lastFile = file
+			}
+			if pct >= 0 {
+				onProgress(pct, lastFile)
+			}
+		}
+	}
+	if err := cmd.Wait(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 11 {
+			return fmt.Errorf("unrar exit 11 (BADPWD) for %s", filepath.Base(archivePath))
+		}
+		return fmt.Errorf("unrar: %w", err)
+	}
+	if onProgress != nil && lastFile != "" {
+		onProgress(100, lastFile)
+	}
+	return nil
+}
+
 // extractRar extracts a RAR archive (single or multi-volume).
 // Strategy:
-//  1. Pure Go (rardecode/v2) for RAR3/4/5 — no external binary needed.
-//  2. External unrar — fallback for encrypted archives.
-//  3. External 7z / 7zz — fallback for environments shipping 7-zip only.
-func (p *Processor) extractRar(archivePath, destDir, password string) error {
+//  1. External unrar — preferred; 5–10× faster than pure-Go for large RAR5.
+//  2. Pure Go (rardecode/v2) — fallback, no binary dep needed.
+//  3. External 7z / 7zz — last resort.
+func (p *Processor) extractRar(archivePath, destDir, password string, onProgress ProgressFunc) error {
 	log.Printf("Extracting RAR: %s -> %s", archivePath, destDir)
 
 	ver := rarVersion(archivePath)
 	log.Printf("Detected RAR%d format: %s", ver, filepath.Base(archivePath))
 
-	// 1. Pure Go — rardecode/v2 supports both RAR3/4 and RAR5.
-	if err := extractRarGo(archivePath, destDir, password); err == nil {
-		return nil
-	} else {
-		log.Printf("Pure-Go RAR extraction failed (%v), trying external tool", err)
-	}
-
-	// 2. External unrar
+	// 1. External unrar — preferred; 5–10× faster than pure-Go for large RAR5.
 	if unrar := resolveUnrar(p.cfg.PostProcess.Unrar); unrar != "" {
-		passFlag := "-p-" // no password
-		if password != "" {
-			passFlag = "-p" + password
-		}
-		cmd := exec.Command(unrar, "x", "-o+", "-y", passFlag, archivePath, destDir+"/")
-		cmd.Stdin = nil
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err == nil {
+		if err := p.extractRarUnrar(unrar, archivePath, destDir, password, onProgress); err == nil {
 			return nil
 		} else {
-			msg := err.Error()
-			if strings.Contains(msg, "exit status 11") {
-				log.Printf("unrar exit 11 (BADPWD): archive may be password-protected — %s", archivePath)
-			}
-			log.Printf("unrar failed (%v), trying 7z", err)
+			log.Printf("unrar failed (%v), falling back to pure-Go rardecode/v2", err)
 		}
 	}
 
-	// 3. 7z / 7zz fallback
+	// 2. Pure-Go rardecode/v2 — fallback; no binary dep needed.
+	if err := extractRarGo(archivePath, destDir, password, onProgress); err == nil {
+		return nil
+	} else {
+		log.Printf("Pure-Go RAR extraction failed (%v), trying 7z", err)
+	}
+
+	// 3. 7z last resort.
 	if sevenzip := resolve7z(p.cfg.PostProcess.SevenZip); sevenzip != "" {
 		cmd := exec.Command(sevenzip, "x", archivePath, "-o"+destDir, "-y")
 		cmd.Stdout = os.Stdout
@@ -228,12 +329,12 @@ func (p *Processor) extractRar(archivePath, destDir, password string) error {
 		}
 	}
 
-	return fmt.Errorf("RAR extraction failed: no working extractor found (tried pure-Go rardecode/v2, unrar, 7z)")
+	return fmt.Errorf("RAR extraction failed: tried unrar, pure-Go rardecode/v2, and 7z")
 }
 
 // extractRarGo extracts a RAR archive using the pure-Go rardecode/v2 library.
 // Supports RAR 2/3/4/5 including multi-volume archives.
-func extractRarGo(archivePath, destDir, password string) error {
+func extractRarGo(archivePath, destDir, password string, onProgress ProgressFunc) error {
 	var opts []rardecode.Option
 	if password != "" {
 		opts = append(opts, rardecode.Password(password))
@@ -270,10 +371,23 @@ func extractRarGo(archivePath, destDir, password string) error {
 		if err != nil {
 			return fmt.Errorf("create %s: %w", destPath, err)
 		}
-		_, copyErr := io.Copy(f, r)
+
+		var dest io.Writer = f
+		if onProgress != nil && header.UnPackedSize > 0 {
+			cw := &countingWriter{
+				w:     f,
+				total: header.UnPackedSize,
+				onPct: func(pct float64) { onProgress(pct, filepath.Base(header.Name)) },
+			}
+			dest = cw
+		}
+		_, copyErr := io.Copy(dest, r)
 		f.Close()
 		if copyErr != nil {
 			return fmt.Errorf("write %s: %w", destPath, copyErr)
+		}
+		if onProgress != nil {
+			onProgress(100, filepath.Base(header.Name))
 		}
 	}
 	return nil

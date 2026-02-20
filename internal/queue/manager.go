@@ -10,6 +10,8 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+type extractProgress struct{ pct float64; file string }
+
 // Status values for downloads.
 const (
 	StatusQueued      = "queued"
@@ -35,6 +37,8 @@ type Download struct {
 	CompletedAt     *time.Time
 	ErrorMsg        string
 	Speed           float64 // bytes per second (live, not persisted)
+	ExtractPct      float64 // 0–100 during StatusProcessing (in-memory, not persisted)
+	ExtractFile     string  // basename currently being extracted (in-memory, not persisted)
 }
 
 // Progress returns the download progress as a percentage.
@@ -47,9 +51,11 @@ func (d *Download) Progress() float64 {
 
 // Manager manages the download queue backed by SQLite.
 type Manager struct {
-	db     *sql.DB
-	mu     sync.RWMutex
-	paused bool
+	db           *sql.DB
+	mu           sync.RWMutex
+	paused       bool
+	extractMu    sync.RWMutex
+	extractState map[string]extractProgress
 }
 
 // NewManager creates a new queue manager with a SQLite database.
@@ -59,7 +65,7 @@ func NewManager(dbPath string) (*Manager, error) {
 		return nil, fmt.Errorf("opening database: %w", err)
 	}
 
-	m := &Manager{db: db}
+	m := &Manager{db: db, extractState: make(map[string]extractProgress)}
 	if err := m.initDB(); err != nil {
 		return nil, fmt.Errorf("initializing database: %w", err)
 	}
@@ -161,6 +167,27 @@ func (m *Manager) SetError(id, errMsg string) error {
 	return err
 }
 
+// SetExtractProgress updates the in-memory extraction progress for a download.
+func (m *Manager) SetExtractProgress(id string, pct float64, file string) {
+	m.extractMu.Lock()
+	defer m.extractMu.Unlock()
+	m.extractState[id] = extractProgress{pct: pct, file: file}
+}
+
+// ClearExtractProgress removes the extraction progress entry for a download.
+func (m *Manager) ClearExtractProgress(id string) {
+	m.extractMu.Lock()
+	defer m.extractMu.Unlock()
+	delete(m.extractState, id)
+}
+
+func (m *Manager) getExtractProgress(id string) (float64, string, bool) {
+	m.extractMu.RLock()
+	defer m.extractMu.RUnlock()
+	ep, ok := m.extractState[id]
+	return ep.pct, ep.file, ok
+}
+
 // GetQueue returns all active (non-completed) downloads.
 func (m *Manager) GetQueue() ([]*Download, error) {
 	rows, err := m.db.Query(`
@@ -189,6 +216,12 @@ func (m *Manager) GetQueue() ([]*Download, error) {
 			return nil, fmt.Errorf("scanning queue row: %w", err)
 		}
 		result = append(result, dl)
+	}
+	for _, dl := range result {
+		if pct, file, ok := m.getExtractProgress(dl.ID); ok {
+			dl.ExtractPct = pct
+			dl.ExtractFile = file
+		}
 	}
 	return result, nil
 }

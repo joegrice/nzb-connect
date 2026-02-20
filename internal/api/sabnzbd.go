@@ -273,7 +273,9 @@ func (h *Handler) getQueue(w http.ResponseWriter, r *http.Request) {
 			"percentage":  fmt.Sprintf("%.0f", dl.Progress()),
 			"size":        nzb.FormatSize(dl.TotalBytes),
 			"sizeleft":    nzb.FormatSize(dl.TotalBytes - dl.DownloadedBytes),
-			"timeleft":    "unknown",
+			"timeleft":     "unknown",
+			"extract_pct":  fmt.Sprintf("%.0f", dl.ExtractPct),
+			"extract_file": dl.ExtractFile,
 		})
 	}
 

@@ -4,11 +4,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
-	"os/signal"
 	"path/filepath"
+	"os/signal"
 	"syscall"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/joe/nzb-connect/internal/postprocess"
 	"github.com/joe/nzb-connect/internal/queue"
 	"github.com/joe/nzb-connect/internal/vpn"
+	webui "github.com/joe/nzb-connect/web"
 )
 
 func main() {
@@ -98,9 +100,12 @@ func main() {
 	}
 	handler.RegisterRoutes(mux)
 
-	// Serve static files
-	staticDir := findStaticDir()
-	mux.Handle("/", http.FileServer(http.Dir(staticDir)))
+	// Serve embedded frontend (web/dist built by Vite)
+	distFS, err := fs.Sub(webui.Dist, "dist")
+	if err != nil {
+		log.Fatalf("embed FS error: %v", err)
+	}
+	mux.Handle("/", http.FileServer(http.FS(distFS)))
 
 	addr := fmt.Sprintf(":%d", cfg.Web.Port)
 	srv := &http.Server{
@@ -135,23 +140,4 @@ func main() {
 		log.Fatalf("HTTP server error: %v", err)
 	}
 	log.Println("NZB Connect stopped.")
-}
-
-// findStaticDir locates the web/static directory relative to the binary or CWD.
-func findStaticDir() string {
-	// Try relative to CWD
-	candidates := []string{
-		"web/static",
-		"../../web/static",
-		filepath.Join(filepath.Dir(os.Args[0]), "web/static"),
-		filepath.Join(filepath.Dir(os.Args[0]), "../../web/static"),
-	}
-	for _, dir := range candidates {
-		if info, err := os.Stat(dir); err == nil && info.IsDir() {
-			abs, _ := filepath.Abs(dir)
-			return abs
-		}
-	}
-	log.Println("WARNING: Could not find web/static directory, web UI may not work")
-	return "web/static"
 }

@@ -1,6 +1,14 @@
 # syntax=docker/dockerfile:1
 
-# ── Build stage ────────────────────────────────────────────────────────────────
+# ── Frontend build stage ───────────────────────────────────────────────────────
+FROM node:20-slim AS frontend
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web/ ./
+RUN npm run build
+
+# ── Go build stage ────────────────────────────────────────────────────────────
 FROM golang:1.22-bookworm AS builder
 
 WORKDIR /app
@@ -9,6 +17,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
+# Copy the pre-built frontend assets so they get embedded into the binary
+COPY --from=frontend /web/dist ./web/dist
 # CGO is required by go-sqlite3 (embeds the sqlite3 C library at compile time,
 # so the runtime image needs no libsqlite3 package).
 RUN CGO_ENABLED=1 GOOS=linux go build -o nzb-connect ./cmd/nzb-connect/
@@ -42,7 +52,7 @@ RUN echo "deb http://deb.debian.org/debian bookworm non-free non-free-firmware" 
 
 WORKDIR /app
 COPY --from=builder /app/nzb-connect .
-COPY web/ web/
+# web/dist is embedded in the binary — no separate COPY needed
 
 # /config  – mount your config.yaml here
 # /downloads – incomplete/ and complete/ subdirectories created automatically
