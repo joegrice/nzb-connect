@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NZB Connect</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            line-height: 1.6;
+        }
+        .container { max-width: 960px; margin: 0 auto; padding: 20px; }
+        header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 16px 0; border-bottom: 1px solid #333;
+            margin-bottom: 24px;
+        }
+        h1 { font-size: 1.5rem; color: #e94560; }
+        .vpn-status {
+            padding: 6px 16px; border-radius: 20px; font-size: 0.85rem; font-weight: 600;
+        }
+        .vpn-up { background: #0f3d0f; color: #4ade80; border: 1px solid #166534; }
+        .vpn-down { background: #3d0f0f; color: #f87171; border: 1px solid #7f1d1d; }
+        .speed-display { font-size: 0.85rem; color: #aaa; }
+        h2 { font-size: 1.2rem; margin: 24px 0 12px; color: #ccc; }
+        .card {
+            background: #16213e; border-radius: 8px; padding: 16px;
+            margin-bottom: 12px; border: 1px solid #1a1a3e;
+        }
+        .progress-bar {
+            background: #0f3460; border-radius: 4px; height: 8px;
+            margin-top: 8px; overflow: hidden;
+        }
+        .progress-fill {
+            background: #e94560; height: 100%; border-radius: 4px;
+            transition: width 0.5s ease;
+        }
+        .dl-info { display: flex; justify-content: space-between; font-size: 0.85rem; color: #aaa; margin-top: 4px; }
+        .dl-name { font-weight: 600; }
+        .dl-status { font-size: 0.8rem; padding: 2px 8px; border-radius: 4px; }
+        .status-downloading { background: #1e3a5f; color: #60a5fa; }
+        .status-queued { background: #3d3d0f; color: #facc15; }
+        .status-processing { background: #1e3a5f; color: #818cf8; }
+        .status-completed { background: #0f3d0f; color: #4ade80; }
+        .status-failed { background: #3d0f0f; color: #f87171; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        th { text-align: left; padding: 8px; border-bottom: 1px solid #333; color: #aaa; }
+        td { padding: 8px; border-bottom: 1px solid #222; }
+        button {
+            background: #e94560; color: white; border: none; padding: 8px 16px;
+            border-radius: 4px; cursor: pointer; font-size: 0.85rem;
+        }
+        button:hover { background: #c73e54; }
+        button.secondary { background: #333; }
+        button.secondary:hover { background: #444; }
+        button.danger { background: #7f1d1d; }
+        button.danger:hover { background: #991b1b; }
+        input, select {
+            background: #0f3460; border: 1px solid #333; color: #eee;
+            padding: 8px 12px; border-radius: 4px; font-size: 0.85rem; width: 100%;
+        }
+        .form-row { display: flex; gap: 12px; margin-bottom: 12px; }
+        .form-row > div { flex: 1; }
+        label { display: block; font-size: 0.8rem; color: #aaa; margin-bottom: 4px; }
+        .empty-state { text-align: center; padding: 40px; color: #666; }
+        .tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+        .tab {
+            padding: 8px 20px; background: #16213e; border: 1px solid #333;
+            border-radius: 4px 4px 0 0; cursor: pointer; color: #aaa;
+        }
+        .tab.active { background: #1a1a3e; color: #e94560; border-bottom-color: #1a1a3e; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .server-actions { display: flex; gap: 8px; }
+        .upload-area {
+            border: 2px dashed #333; border-radius: 8px; padding: 24px;
+            text-align: center; margin-bottom: 16px; cursor: pointer;
+        }
+        .upload-area:hover { border-color: #e94560; }
+        .upload-area input { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>NZB Connect</h1>
+            <div>
+                <span class="speed-display" id="speed">0.00 MB/s</span>
+                <span class="vpn-status vpn-down" id="vpn-status">VPN: checking...</span>
+            </div>
+        </header>
+
+        <div class="tabs">
+            <div class="tab active" data-tab="downloads">Downloads</div>
+            <div class="tab" data-tab="servers">Servers</div>
+            <div class="tab" data-tab="vpn">VPN</div>
+            <div class="tab" data-tab="add">Add NZB</div>
+        </div>
+
+        <!-- Downloads Tab -->
+        <div class="tab-content active" id="tab-downloads">
+            <h2>Queue</h2>
+            <div id="queue-list"><div class="empty-state">No active downloads</div></div>
+
+            <h2>History</h2>
+            <div id="history-list"><div class="empty-state">No completed downloads</div></div>
+        </div>
+
+        <!-- Servers Tab -->
+        <div class="tab-content" id="tab-servers">
+            <h2>NNTP Servers</h2>
+            <div id="server-list"></div>
+
+            <h2 id="server-form-title">Add Server</h2>
+            <div class="card" id="server-form">
+                <div class="form-row">
+                    <div><label>Name</label><input id="srv-name" placeholder="My Server"></div>
+                    <div><label>Host</label><input id="srv-host" placeholder="news.example.com"></div>
+                </div>
+                <div class="form-row">
+                    <div><label>Port</label><input id="srv-port" type="number" value="563"></div>
+                    <div><label>SSL</label>
+                        <select id="srv-ssl"><option value="true">Yes</option><option value="false">No</option></select>
+                    </div>
+                    <div><label>Connections</label><input id="srv-conns" type="number" value="20" min="1" max="50"></div>
+                </div>
+                <div class="form-row">
+                    <div><label>Username</label><input id="srv-user" placeholder="username"></div>
+                    <div><label>Password</label><input id="srv-pass" type="password" placeholder="password"></div>
+                </div>
+                <div style="display: flex; gap: 8px; margin-top: 8px;">
+                    <button onclick="testServer()">Test Connection</button>
+                    <button id="srv-submit-btn" onclick="submitServer()">Add Server</button>
+                    <button class="secondary" id="srv-cancel-btn" onclick="cancelEdit()" style="display:none">Cancel</button>
+                </div>
+                <div id="server-msg" style="margin-top: 8px; font-size: 0.85rem;"></div>
+            </div>
+        </div>
+
+        <!-- VPN Tab -->
+        <div class="tab-content" id="tab-vpn">
+            <h2>VPN Status</h2>
+            <div class="card" id="vpn-status-card">
+                <div id="vpn-current-status" style="margin-bottom: 12px;"></div>
+                <div id="vpn-actions" style="display: flex; gap: 8px;"></div>
+            </div>
+
+            <h2>VPN Configuration</h2>
+            <div class="card">
+                <div class="form-row">
+                    <div>
+                        <label>Protocol</label>
+                        <select id="vpn-protocol" onchange="vpnProtocolChanged()">
+                            <option value="">None (passive — external VPN)</option>
+                            <option value="wireguard">WireGuard</option>
+                            <option value="openvpn">OpenVPN</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Passive mode: interface name -->
+                <div id="vpn-passive-fields">
+                    <div class="form-row">
+                        <div>
+                            <label>Network Interface</label>
+                            <input id="vpn-interface" placeholder="e.g. tun0, wg0, tailscale0">
+                        </div>
+                    </div>
+                    <p style="font-size:0.8rem;color:#666;margin-bottom:12px">
+                        Passive mode: manage your VPN externally. All NNTP traffic binds to this interface.
+                    </p>
+                </div>
+
+                <!-- WireGuard fields -->
+                <div id="vpn-wg-fields" style="display:none">
+                    <div class="form-row">
+                        <div><label>Private Key</label><input id="wg-private-key" type="password" placeholder="base64 key"></div>
+                        <div><label>Address (CIDR)</label><input id="wg-address" placeholder="10.0.0.2/32"></div>
+                    </div>
+                    <div class="form-row">
+                        <div><label>DNS</label><input id="wg-dns" placeholder="1.1.1.1"></div>
+                        <div><label>Listen Port</label><input id="wg-listen-port" type="number" placeholder="optional"></div>
+                    </div>
+                    <div class="form-row">
+                        <div><label>Peer Public Key</label><input id="wg-peer-public-key" type="password" placeholder="base64 key"></div>
+                        <div><label>Peer Endpoint</label><input id="wg-peer-endpoint" placeholder="vpn.example.com:51820"></div>
+                    </div>
+                    <div class="form-row">
+                        <div><label>Preshared Key</label><input id="wg-preshared-key" type="password" placeholder="optional"></div>
+                        <div><label>Allowed IPs</label><input id="wg-allowed-ips" placeholder="0.0.0.0/0" value="0.0.0.0/0"></div>
+                    </div>
+                    <div class="form-row">
+                        <div><label>Persistent Keepalive (seconds)</label><input id="wg-keepalive" type="number" placeholder="25"></div>
+                    </div>
+                </div>
+
+                <!-- OpenVPN fields -->
+                <div id="vpn-ovpn-fields" style="display:none">
+                    <div class="form-row">
+                        <div><label>Remote Host</label><input id="ovpn-remote-host" placeholder="vpn.example.com"></div>
+                        <div><label>Remote Port</label><input id="ovpn-remote-port" type="number" value="1194"></div>
+                    </div>
+                    <div class="form-row">
+                        <div><label>Protocol</label>
+                            <select id="ovpn-protocol"><option value="udp">UDP</option><option value="tcp">TCP</option></select>
+                        </div>
+                        <div><label>Auth Type</label>
+                            <select id="ovpn-auth-type" onchange="ovpnAuthChanged()">
+                                <option value="userpass">Username/Password</option>
+                                <option value="certificate">Certificate</option>
+                            </select>
+                        </div>
+                        <div><label>Device Type</label>
+                            <select id="ovpn-device-type"><option value="tun">TUN</option><option value="tap">TAP</option></select>
+                        </div>
+                    </div>
+                    <div class="form-row" id="ovpn-userpass-row">
+                        <div><label>Username</label><input id="ovpn-username" placeholder="username"></div>
+                        <div><label>Password</label><input id="ovpn-password" type="password" placeholder="password"></div>
+                    </div>
+                    <div class="form-row">
+                        <div><label>CA Certificate</label><textarea id="ovpn-ca-cert" rows="3" style="background:#0f3460;border:1px solid #333;color:#eee;padding:8px;border-radius:4px;width:100%;font-size:0.8rem;font-family:monospace" placeholder="-----BEGIN CERTIFICATE-----"></textarea></div>
+                    </div>
+                    <div id="ovpn-cert-fields" style="display:none">
+                        <div class="form-row">
+                            <div><label>Client Certificate</label><textarea id="ovpn-client-cert" rows="3" style="background:#0f3460;border:1px solid #333;color:#eee;padding:8px;border-radius:4px;width:100%;font-size:0.8rem;font-family:monospace" placeholder="-----BEGIN CERTIFICATE-----"></textarea></div>
+                        </div>
+                        <div class="form-row">
+                            <div><label>Client Key</label><textarea id="ovpn-client-key" rows="3" style="background:#0f3460;border:1px solid #333;color:#eee;padding:8px;border-radius:4px;width:100%;font-size:0.8rem;font-family:monospace" placeholder="-----BEGIN PRIVATE KEY-----"></textarea></div>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div><label>TLS Auth Key</label><textarea id="ovpn-tls-auth" rows="2" style="background:#0f3460;border:1px solid #333;color:#eee;padding:8px;border-radius:4px;width:100%;font-size:0.8rem;font-family:monospace" placeholder="optional"></textarea></div>
+                    </div>
+                    <div class="form-row">
+                        <div><label>Cipher</label><input id="ovpn-cipher" placeholder="AES-256-GCM"></div>
+                        <div><label>Auth Hash</label><input id="ovpn-auth" placeholder="SHA256"></div>
+                        <div><label>Compression</label>
+                            <select id="ovpn-compress"><option value="">None</option><option value="lzo">LZO</option><option value="lz4">LZ4</option></select>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 8px; margin-top: 12px;">
+                    <button onclick="saveVPN()">Save Configuration</button>
+                    <button class="secondary" onclick="vpnConnect()">Connect</button>
+                    <button class="danger" onclick="vpnDisconnect()">Disconnect</button>
+                </div>
+                <div id="vpn-msg" style="margin-top: 8px; font-size: 0.85rem;"></div>
+            </div>
+        </div>
+
+        <!-- Add NZB Tab -->
+        <div class="tab-content" id="tab-add">
+            <h2>Add NZB Download</h2>
+            <div class="card">
+                <div class="upload-area" onclick="document.getElementById('nzb-file').click()">
+                    <p>Click to select NZB file or drag and drop</p>
+                    <input type="file" id="nzb-file" accept=".nzb" onchange="uploadNZB()">
+                </div>
+                <div class="form-row">
+                    <div><label>Or enter NZB URL</label><input id="nzb-url" placeholder="https://..."></div>
+                    <div><label>Category (optional)</label><input id="nzb-cat" placeholder="tv, movies, etc."></div>
+                </div>
+                <button onclick="addNZBURL()" style="margin-top: 8px;">Add URL</button>
+                <div id="add-msg" style="margin-top: 8px; font-size: 0.85rem;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+            });
+        });
+
+        function fetchJSON(url, opts) {
+            return fetch(url, opts).then(r => r.json());
+        }
+
+        // Status polling
+        function updateStatus() {
+            fetchJSON('/api?mode=status').then(data => {
+                const s = data.status;
+                const mbps = (parseFloat(s.speed) / 1024).toFixed(2);
+                document.getElementById('speed').textContent = mbps + ' MB/s';
+                const vpnEl = document.getElementById('vpn-status');
+                if (s.vpn_connected) {
+                    vpnEl.className = 'vpn-status vpn-up';
+                    vpnEl.textContent = 'VPN: ' + (s.vpn_interface || 'up');
+                } else {
+                    vpnEl.className = 'vpn-status vpn-down';
+                    vpnEl.textContent = 'VPN: down';
+                }
+            }).catch(() => {});
+        }
+
+        function updateQueue() {
+            fetchJSON('/api?mode=queue').then(data => {
+                const el = document.getElementById('queue-list');
+                const slots = data.queue.slots || [];
+                if (slots.length === 0) {
+                    el.innerHTML = '<div class="empty-state">No active downloads</div>';
+                    return;
+                }
+                el.innerHTML = slots.map(s => `
+                    <div class="card">
+                        <div style="display:flex;justify-content:space-between;align-items:center">
+                            <span class="dl-name">${esc(s.filename)}</span>
+                            <div style="display:flex;gap:8px;align-items:center">
+                                <span class="dl-status status-${s.status.toLowerCase()}">${s.status}</span>
+                                <button class="danger" style="padding:3px 10px;font-size:0.78rem" onclick="stopDownload('${s.nzo_id}')">Stop</button>
+                            </div>
+                        </div>
+                        <div class="progress-bar"><div class="progress-fill" style="width:${s.percentage}%"></div></div>
+                        <div class="dl-info">
+                            <span>${s.percentage}%</span>
+                            <span>${s.sizeleft} remaining of ${s.size}</span>
+                        </div>
+                    </div>
+                `).join('');
+            }).catch(() => {});
+        }
+
+        function stopDownload(id) {
+            if (!confirm('Stop this download?')) return;
+            fetch('/api/queue/' + id, { method: 'DELETE' })
+                .then(() => { updateQueue(); updateHistory(); })
+                .catch(() => {});
+        }
+
+        function updateHistory() {
+            fetchJSON('/api?mode=history').then(data => {
+                const el = document.getElementById('history-list');
+                const slots = data.history.slots || [];
+                if (slots.length === 0) {
+                    el.innerHTML = '<div class="empty-state">No completed downloads</div>';
+                    return;
+                }
+                el.innerHTML = '<table><tr><th>Name</th><th>Category</th><th>Status</th><th>Path</th></tr>' +
+                    slots.map(s => `<tr>
+                        <td>${esc(s.name)}</td>
+                        <td>${esc(s.category || '-')}</td>
+                        <td><span class="dl-status status-${s.status.toLowerCase()}">${s.status}</span></td>
+                        <td style="font-size:0.8rem;color:#666">${esc(s.storage || '-')}</td>
+                    </tr>`).join('') + '</table>';
+            }).catch(() => {});
+        }
+
+        let serverCache = [];
+
+        function updateServers() {
+            fetchJSON('/api/servers').then(data => {
+                serverCache = data.servers || [];
+                const el = document.getElementById('server-list');
+                if (serverCache.length === 0) {
+                    el.innerHTML = '<div class="empty-state">No servers configured</div>';
+                    return;
+                }
+                el.innerHTML = serverCache.map(s => `
+                    <div class="card" style="display:flex;justify-content:space-between;align-items:center">
+                        <div>
+                            <strong>${esc(s.name)}</strong>
+                            <span style="color:#666;font-size:0.8rem;margin-left:8px">${esc(s.host)}:${s.port} ${s.ssl?'(SSL)':''}</span>
+                            <span style="color:#666;font-size:0.8rem;margin-left:8px">${s.connections} conns</span>
+                            <span style="color:${s.enabled?'#4ade80':'#f87171'};font-size:0.8rem;margin-left:8px">${s.enabled?'Enabled':'Disabled'}</span>
+                        </div>
+                        <div class="server-actions">
+                            <button class="secondary" onclick="editServer('${s.id}')">Edit</button>
+                            <button class="danger" onclick="deleteServer('${s.id || s.name}')">Delete</button>
+                        </div>
+                    </div>
+                `).join('');
+            }).catch(() => {});
+        }
+
+        function getServerForm() {
+            return {
+                name: document.getElementById('srv-name').value,
+                host: document.getElementById('srv-host').value,
+                port: parseInt(document.getElementById('srv-port').value) || 563,
+                ssl: document.getElementById('srv-ssl').value === 'true',
+                connections: parseInt(document.getElementById('srv-conns').value) || 20,
+                username: document.getElementById('srv-user').value,
+                password: document.getElementById('srv-pass').value,
+                enabled: true,
+            };
+        }
+
+        function testServer() {
+            const srv = getServerForm();
+            document.getElementById('server-msg').textContent = 'Testing...';
+            fetchJSON('/api/servers/test', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(srv)
+            }).then(data => {
+                document.getElementById('server-msg').textContent = data.status ? 'Connection successful!' : 'Failed: ' + data.error;
+                document.getElementById('server-msg').style.color = data.status ? '#4ade80' : '#f87171';
+            }).catch(e => {
+                document.getElementById('server-msg').textContent = 'Error: ' + e.message;
+                document.getElementById('server-msg').style.color = '#f87171';
+            });
+        }
+
+        let editingServerId = null;
+
+        function editServer(id) {
+            const s = serverCache.find(x => x.id === id);
+            if (!s) return;
+            editingServerId = id;
+            document.getElementById('srv-name').value = s.name || '';
+            document.getElementById('srv-host').value = s.host || '';
+            document.getElementById('srv-port').value = s.port || 563;
+            document.getElementById('srv-ssl').value = s.ssl ? 'true' : 'false';
+            document.getElementById('srv-conns').value = s.connections || 20;
+            document.getElementById('srv-user').value = s.username || '';
+            document.getElementById('srv-pass').value = '';
+            document.getElementById('srv-pass').placeholder = s.username ? '(unchanged)' : 'password';
+            document.getElementById('server-form-title').textContent = 'Edit Server';
+            document.getElementById('srv-submit-btn').textContent = 'Save Changes';
+            document.getElementById('srv-cancel-btn').style.display = '';
+            document.getElementById('server-msg').textContent = '';
+            document.getElementById('server-form').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function cancelEdit() {
+            editingServerId = null;
+            document.getElementById('srv-name').value = '';
+            document.getElementById('srv-host').value = '';
+            document.getElementById('srv-port').value = '563';
+            document.getElementById('srv-ssl').value = 'true';
+            document.getElementById('srv-conns').value = '20';
+            document.getElementById('srv-user').value = '';
+            document.getElementById('srv-pass').value = '';
+            document.getElementById('srv-pass').placeholder = 'password';
+            document.getElementById('server-form-title').textContent = 'Add Server';
+            document.getElementById('srv-submit-btn').textContent = 'Add Server';
+            document.getElementById('srv-cancel-btn').style.display = 'none';
+            document.getElementById('server-msg').textContent = '';
+        }
+
+        function submitServer() {
+            if (editingServerId) {
+                saveServer(editingServerId);
+            } else {
+                addServer();
+            }
+        }
+
+        function addServer() {
+            const srv = getServerForm();
+            if (!srv.host) { alert('Host is required'); return; }
+            fetchJSON('/api/servers', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(srv)
+            }).then(data => {
+                if (data.status) {
+                    document.getElementById('server-msg').textContent = 'Server added!';
+                    document.getElementById('server-msg').style.color = '#4ade80';
+                    updateServers();
+                    cancelEdit();
+                } else {
+                    document.getElementById('server-msg').textContent = 'Error: ' + data.error;
+                    document.getElementById('server-msg').style.color = '#f87171';
+                }
+            });
+        }
+
+        function saveServer(id) {
+            const srv = getServerForm();
+            if (!srv.host) { alert('Host is required'); return; }
+            // If password left blank, keep existing (send empty string; server skips empty)
+            fetchJSON('/api/servers/' + id, {
+                method: 'PUT', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(srv)
+            }).then(data => {
+                if (data.status) {
+                    document.getElementById('server-msg').textContent = 'Server updated!';
+                    document.getElementById('server-msg').style.color = '#4ade80';
+                    updateServers();
+                    cancelEdit();
+                } else {
+                    document.getElementById('server-msg').textContent = 'Error: ' + data.error;
+                    document.getElementById('server-msg').style.color = '#f87171';
+                }
+            });
+        }
+
+        function deleteServer(id) {
+            if (!confirm('Delete this server?')) return;
+            if (editingServerId === id) cancelEdit();
+            fetchJSON('/api/servers/' + id, { method: 'DELETE' }).then(() => updateServers());
+        }
+
+        function uploadNZB() {
+            const file = document.getElementById('nzb-file').files[0];
+            if (!file) return;
+            const form = new FormData();
+            form.append('nzbfile', file);
+            form.append('cat', document.getElementById('nzb-cat').value);
+            fetchJSON('/api', { method: 'POST', body: form }).then(data => {
+                const msg = document.getElementById('add-msg');
+                if (data.status) {
+                    msg.textContent = 'Added! ID: ' + data.nzo_ids[0];
+                    msg.style.color = '#4ade80';
+                    updateQueue();
+                } else {
+                    msg.textContent = 'Error: ' + data.error;
+                    msg.style.color = '#f87171';
+                }
+            });
+        }
+
+        function addNZBURL() {
+            const url = document.getElementById('nzb-url').value;
+            if (!url) { alert('Enter a URL'); return; }
+            const form = new FormData();
+            form.append('mode', 'addurl');
+            form.append('name', url);
+            form.append('cat', document.getElementById('nzb-cat').value);
+            fetchJSON('/api', { method: 'POST', body: form }).then(data => {
+                const msg = document.getElementById('add-msg');
+                if (data.status) {
+                    msg.textContent = 'Added! ID: ' + data.nzo_ids[0];
+                    msg.style.color = '#4ade80';
+                    updateQueue();
+                } else {
+                    msg.textContent = 'Error: ' + data.error;
+                    msg.style.color = '#f87171';
+                }
+            });
+        }
+
+        // VPN management
+        let vpnConfigCache = {};
+
+        function vpnProtocolChanged() {
+            const proto = document.getElementById('vpn-protocol').value;
+            document.getElementById('vpn-passive-fields').style.display = proto === '' ? 'block' : 'none';
+            document.getElementById('vpn-wg-fields').style.display = proto === 'wireguard' ? 'block' : 'none';
+            document.getElementById('vpn-ovpn-fields').style.display = proto === 'openvpn' ? 'block' : 'none';
+        }
+
+        function ovpnAuthChanged() {
+            const authType = document.getElementById('ovpn-auth-type').value;
+            document.getElementById('ovpn-userpass-row').style.display = authType === 'userpass' ? 'flex' : 'none';
+            document.getElementById('ovpn-cert-fields').style.display = authType === 'certificate' ? 'block' : 'none';
+        }
+
+        function updateVPN() {
+            fetchJSON('/api/vpn').then(data => {
+                vpnConfigCache = data;
+                document.getElementById('vpn-protocol').value = data.protocol || '';
+                document.getElementById('vpn-interface').value = data.interface || '';
+                vpnProtocolChanged();
+
+                // WireGuard fields
+                if (data.wireguard) {
+                    const wg = data.wireguard;
+                    document.getElementById('wg-private-key').value = '';
+                    document.getElementById('wg-private-key').placeholder = wg.has_private_key ? '(configured)' : 'base64 key';
+                    document.getElementById('wg-address').value = wg.address || '';
+                    document.getElementById('wg-dns').value = wg.dns || '';
+                    document.getElementById('wg-listen-port').value = wg.listen_port || '';
+                    document.getElementById('wg-peer-public-key').value = '';
+                    document.getElementById('wg-peer-public-key').placeholder = wg.has_peer_public_key ? '(configured)' : 'base64 key';
+                    document.getElementById('wg-peer-endpoint').value = wg.peer_endpoint || '';
+                    document.getElementById('wg-preshared-key').value = '';
+                    document.getElementById('wg-preshared-key').placeholder = wg.has_preshared_key ? '(configured)' : 'optional';
+                    document.getElementById('wg-allowed-ips').value = wg.allowed_ips || '0.0.0.0/0';
+                    document.getElementById('wg-keepalive').value = wg.persistent_keepalive || '';
+                }
+
+                // OpenVPN fields
+                if (data.openvpn) {
+                    const ov = data.openvpn;
+                    document.getElementById('ovpn-remote-host').value = ov.remote_host || '';
+                    document.getElementById('ovpn-remote-port').value = ov.remote_port || 1194;
+                    document.getElementById('ovpn-protocol').value = ov.protocol || 'udp';
+                    document.getElementById('ovpn-auth-type').value = ov.auth_type || 'userpass';
+                    document.getElementById('ovpn-username').value = '';
+                    document.getElementById('ovpn-username').placeholder = ov.has_username ? '(configured)' : 'username';
+                    document.getElementById('ovpn-password').value = '';
+                    document.getElementById('ovpn-password').placeholder = ov.has_password ? '(configured)' : 'password';
+                    document.getElementById('ovpn-ca-cert').value = '';
+                    document.getElementById('ovpn-ca-cert').placeholder = ov.has_ca_cert ? '(configured)' : '-----BEGIN CERTIFICATE-----';
+                    document.getElementById('ovpn-client-cert').value = '';
+                    document.getElementById('ovpn-client-cert').placeholder = ov.has_client_cert ? '(configured)' : '-----BEGIN CERTIFICATE-----';
+                    document.getElementById('ovpn-client-key').value = '';
+                    document.getElementById('ovpn-client-key').placeholder = ov.has_client_key ? '(configured)' : '-----BEGIN PRIVATE KEY-----';
+                    document.getElementById('ovpn-tls-auth').value = '';
+                    document.getElementById('ovpn-tls-auth').placeholder = ov.has_tls_auth ? '(configured)' : 'optional';
+                    document.getElementById('ovpn-cipher').value = ov.cipher || '';
+                    document.getElementById('ovpn-auth').value = ov.auth || '';
+                    document.getElementById('ovpn-compress').value = ov.compress || '';
+                    document.getElementById('ovpn-device-type').value = ov.device_type || 'tun';
+                    ovpnAuthChanged();
+                }
+            }).catch(() => {});
+        }
+
+        function updateVPNStatus() {
+            fetchJSON('/api/vpn/status').then(data => {
+                const el = document.getElementById('vpn-current-status');
+                const actEl = document.getElementById('vpn-actions');
+                let badge = '';
+                const state = data.state || 'disconnected';
+
+                if (state === 'connected') {
+                    let info = 'Interface: ' + esc(data.interface_name || 'unknown');
+                    if (data.uptime_seconds) {
+                        const m = Math.floor(data.uptime_seconds / 60);
+                        const h = Math.floor(m / 60);
+                        info += ' | Uptime: ' + (h > 0 ? h + 'h ' : '') + (m % 60) + 'm';
+                    }
+                    badge = '<span class="vpn-status vpn-up" style="display:inline-block">' + esc(state) + '</span> <span style="color:#aaa;font-size:0.85rem;margin-left:8px">' + info + '</span>';
+                } else if (state === 'connecting' || state === 'reconnecting') {
+                    badge = '<span class="vpn-status" style="display:inline-block;background:#3d3d0f;color:#facc15;border:1px solid #854d0e">' + esc(state) + '</span>';
+                } else if (state === 'error') {
+                    badge = '<span class="vpn-status vpn-down" style="display:inline-block">' + esc(state) + '</span>';
+                    if (data.error) badge += ' <span style="color:#f87171;font-size:0.85rem;margin-left:8px">' + esc(data.error) + '</span>';
+                } else {
+                    badge = '<span class="vpn-status vpn-down" style="display:inline-block">' + esc(state) + '</span>';
+                    if (!data.managed) badge += ' <span style="color:#aaa;font-size:0.85rem;margin-left:8px">(passive mode)</span>';
+                }
+                el.innerHTML = badge;
+            }).catch(() => {});
+        }
+
+        function buildVPNPayload() {
+            const proto = document.getElementById('vpn-protocol').value;
+            const payload = {
+                enabled: proto !== '',
+                protocol: proto,
+                interface: document.getElementById('vpn-interface').value.trim(),
+            };
+
+            if (proto === 'wireguard') {
+                payload.wireguard = {
+                    private_key: document.getElementById('wg-private-key').value,
+                    address: document.getElementById('wg-address').value,
+                    dns: document.getElementById('wg-dns').value,
+                    listen_port: parseInt(document.getElementById('wg-listen-port').value) || 0,
+                    peer_public_key: document.getElementById('wg-peer-public-key').value,
+                    peer_endpoint: document.getElementById('wg-peer-endpoint').value,
+                    preshared_key: document.getElementById('wg-preshared-key').value,
+                    allowed_ips: document.getElementById('wg-allowed-ips').value || '0.0.0.0/0',
+                    persistent_keepalive: parseInt(document.getElementById('wg-keepalive').value) || 0,
+                };
+            } else if (proto === 'openvpn') {
+                payload.openvpn = {
+                    remote_host: document.getElementById('ovpn-remote-host').value,
+                    remote_port: parseInt(document.getElementById('ovpn-remote-port').value) || 1194,
+                    protocol: document.getElementById('ovpn-protocol').value,
+                    auth_type: document.getElementById('ovpn-auth-type').value,
+                    username: document.getElementById('ovpn-username').value,
+                    password: document.getElementById('ovpn-password').value,
+                    ca_cert: document.getElementById('ovpn-ca-cert').value,
+                    client_cert: document.getElementById('ovpn-client-cert').value,
+                    client_key: document.getElementById('ovpn-client-key').value,
+                    tls_auth: document.getElementById('ovpn-tls-auth').value,
+                    cipher: document.getElementById('ovpn-cipher').value,
+                    auth: document.getElementById('ovpn-auth').value,
+                    compress: document.getElementById('ovpn-compress').value,
+                    device_type: document.getElementById('ovpn-device-type').value,
+                };
+            }
+            return payload;
+        }
+
+        function saveVPN() {
+            const payload = buildVPNPayload();
+            const msg = document.getElementById('vpn-msg');
+            msg.textContent = 'Saving...';
+            msg.style.color = '#aaa';
+            fetchJSON('/api/vpn', {
+                method: 'PUT', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            }).then(data => {
+                if (data.status) {
+                    msg.textContent = 'Configuration saved!';
+                    msg.style.color = '#4ade80';
+                    updateVPN();
+                    updateVPNStatus();
+                } else {
+                    msg.textContent = 'Error: ' + data.error;
+                    msg.style.color = '#f87171';
+                }
+            }).catch(e => {
+                msg.textContent = 'Error: ' + e.message;
+                msg.style.color = '#f87171';
+            });
+        }
+
+        function vpnConnect() {
+            const msg = document.getElementById('vpn-msg');
+            const proto = document.getElementById('vpn-protocol').value;
+            if (!proto) {
+                msg.textContent = 'Select a protocol (WireGuard or OpenVPN) first';
+                msg.style.color = '#f87171';
+                return;
+            }
+            // Save config first, then connect
+            msg.textContent = 'Saving and connecting...';
+            msg.style.color = '#aaa';
+            const payload = buildVPNPayload();
+            fetchJSON('/api/vpn', {
+                method: 'PUT', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            }).then(saveData => {
+                if (!saveData.status) {
+                    msg.textContent = 'Save failed: ' + saveData.error;
+                    msg.style.color = '#f87171';
+                    return;
+                }
+                return fetchJSON('/api/vpn/connect', { method: 'POST' });
+            }).then(data => {
+                if (!data) return;
+                if (data.status) {
+                    msg.textContent = 'Connected!';
+                    msg.style.color = '#4ade80';
+                } else {
+                    msg.textContent = 'Error: ' + data.error;
+                    msg.style.color = '#f87171';
+                }
+                updateVPNStatus();
+            }).catch(e => {
+                msg.textContent = 'Error: ' + e.message;
+                msg.style.color = '#f87171';
+            });
+        }
+
+        function vpnDisconnect() {
+            const msg = document.getElementById('vpn-msg');
+            msg.textContent = 'Disconnecting...';
+            msg.style.color = '#aaa';
+            fetchJSON('/api/vpn/disconnect', { method: 'POST' }).then(data => {
+                if (data.status) {
+                    msg.textContent = 'Disconnected.';
+                    msg.style.color = '#4ade80';
+                } else {
+                    msg.textContent = 'Error: ' + data.error;
+                    msg.style.color = '#f87171';
+                }
+                updateVPNStatus();
+            }).catch(e => {
+                msg.textContent = 'Error: ' + e.message;
+                msg.style.color = '#f87171';
+            });
+        }
+
+        function esc(s) {
+            const d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        // Initial load and polling
+        updateStatus(); updateQueue(); updateHistory(); updateServers(); updateVPN(); updateVPNStatus();
+        setInterval(updateStatus, 2000);
+        setInterval(updateQueue, 3000);
+        setInterval(updateHistory, 10000);
+        setInterval(updateVPNStatus, 2000);
+    </script>
+</body>
+</html>

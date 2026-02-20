@@ -1,0 +1,4 @@
+nzb-connect
+*.db
+config.yaml
+.git
