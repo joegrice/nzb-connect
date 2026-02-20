@@ -1,11 +1,9 @@
 import { useState, useRef, type DragEvent, type ChangeEvent } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { addNZBFile, addNZBUrl } from '@/api'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Upload, Link } from 'lucide-react'
+import { Upload, Link, Loader2 } from 'lucide-react'
 
 export function AddNzb() {
   const qc = useQueryClient()
@@ -24,7 +22,7 @@ export function AddNzb() {
     mutationFn: ({ file, cat }: { file: File; cat: string }) => addNZBFile(file, cat),
     onSuccess: (data) => {
       if (data.status) {
-        notify('success', `Added download (ID: ${data.nzo_ids?.[0] ?? '?'})`)
+        notify('success', `Added: ${data.nzo_ids?.[0] ?? '?'}`)
         qc.invalidateQueries({ queryKey: ['queue'] })
       } else {
         notify('error', 'Failed to add NZB')
@@ -37,7 +35,7 @@ export function AddNzb() {
     mutationFn: ({ nzbUrl, cat }: { nzbUrl: string; cat: string }) => addNZBUrl(nzbUrl, cat),
     onSuccess: (data) => {
       if (data.status) {
-        notify('success', `Added download (ID: ${data.nzo_ids?.[0] ?? '?'})`)
+        notify('success', `Added: ${data.nzo_ids?.[0] ?? '?'}`)
         setUrl('')
         qc.invalidateQueries({ queryKey: ['queue'] })
       } else {
@@ -49,9 +47,7 @@ export function AddNzb() {
 
   function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return
-    Array.from(files).forEach(file => {
-      uploadMutation.mutate({ file, cat: category })
-    })
+    Array.from(files).forEach(file => uploadMutation.mutate({ file, cat: category }))
   }
 
   function handleDrop(e: DragEvent<HTMLDivElement>) {
@@ -72,79 +68,66 @@ export function AddNzb() {
   }
 
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle>Add NZB</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="category">Category (optional)</Label>
-            <Input
-              id="category"
-              placeholder="e.g. tv, movies"
-              value={category}
-              onChange={e => setCategory(e.target.value)}
-            />
-          </div>
-
-          {/* Drop zone */}
-          <div
-            className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
-              dragOver ? 'border-primary bg-primary/5' : 'border-muted-foreground/25 hover:border-primary/50'
-            }`}
-            onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={handleDrop}
-            onClick={() => fileRef.current?.click()}
-          >
-            <Upload className="mx-auto h-8 w-8 text-muted-foreground mb-2" />
-            <p className="text-sm font-medium">Drop NZB files here or click to browse</p>
-            <p className="text-xs text-muted-foreground mt-1">Supports .nzb files</p>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".nzb"
-              multiple
-              className="hidden"
-              onChange={handleFileChange}
-            />
-          </div>
-
-          {uploadMutation.isPending && (
-            <p className="text-sm text-muted-foreground">Uploading…</p>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Add from URL</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleUrlSubmit} className="flex gap-2">
-            <Input
-              placeholder="https://example.com/file.nzb"
-              value={url}
-              onChange={e => setUrl(e.target.value)}
-              className="flex-1"
-            />
-            <Button type="submit" disabled={urlMutation.isPending || !url.trim()}>
-              <Link className="h-4 w-4 mr-1" />
-              Add
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      {message && (
-        <div className={`rounded-md px-4 py-3 text-sm ${
-          message.type === 'success'
-            ? 'bg-green-50 text-green-800 border border-green-200'
-            : 'bg-red-50 text-red-800 border border-red-200'
-        }`}>
-          {message.text}
+    <div className="space-y-2 mb-4">
+      {/* Drop zone + category row */}
+      <div className="flex gap-2">
+        <div
+          className={`flex-1 flex items-center gap-3 border-2 border-dashed rounded-md px-4 py-2.5 cursor-pointer transition-colors ${
+            dragOver
+              ? 'border-primary bg-primary/10'
+              : 'border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/40'
+          }`}
+          onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+          onClick={() => fileRef.current?.click()}
+        >
+          {uploadMutation.isPending
+            ? <Loader2 className="h-4 w-4 text-muted-foreground shrink-0 animate-spin" />
+            : <Upload className="h-4 w-4 text-muted-foreground shrink-0" />
+          }
+          <span className="text-sm text-muted-foreground select-none">
+            {uploadMutation.isPending ? 'Uploading…' : 'Drop .nzb or click to browse'}
+          </span>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".nzb"
+            multiple
+            className="hidden"
+            onChange={handleFileChange}
+          />
         </div>
+        <Input
+          placeholder="Category"
+          value={category}
+          onChange={e => setCategory(e.target.value)}
+          className="w-28 shrink-0"
+        />
+      </div>
+
+      {/* URL row */}
+      <form onSubmit={handleUrlSubmit} className="flex gap-2">
+        <Input
+          placeholder="https://…/file.nzb"
+          value={url}
+          onChange={e => setUrl(e.target.value)}
+          className="flex-1"
+        />
+        <Button type="submit" variant="secondary" disabled={urlMutation.isPending || !url.trim()}>
+          {urlMutation.isPending
+            ? <Loader2 className="h-4 w-4 animate-spin" />
+            : <Link className="h-4 w-4" />
+          }
+          <span>Add URL</span>
+        </Button>
+      </form>
+
+      {/* Feedback */}
+      {message && (
+        <p className={`text-xs px-1 ${message.type === 'success' ? 'text-green-500' : 'text-destructive'}`}>
+          {message.text}
+        </p>
       )}
     </div>
   )
