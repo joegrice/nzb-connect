@@ -1,0 +1,24 @@
+services:
+  nzb-connect:
+    build: .
+    container_name: nzb-connect
+    restart: unless-stopped
+
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+
+    ports:
+      - "6789:6789"
+
+    volumes:
+      - /path/to/data:/config       # config.yaml + cache live here
+      - /path/to/downloads:/downloads  # incomplete/ and complete/ created automatically
+
+    environment:
+      - TZ=Europe/London
+
+    # network_mode: host  # uncomment if VPN is managed on the host

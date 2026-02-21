@@ -54,26 +54,15 @@ WORKDIR /app
 COPY --from=builder /app/nzb-connect .
 # web/dist is embedded in the binary — no separate COPY needed
 
-# /config  – mount your config.yaml here
-# /downloads – incomplete/ and complete/ subdirectories created automatically
+# Default config — copied to /config/config.yaml on first run if none exists
+COPY config.example.yaml .
+COPY docker-entrypoint.sh .
+RUN chmod +x docker-entrypoint.sh
+
+# /config     – base data directory: config.yaml + cache/  (mount a host directory here)
+# /downloads  – download root: incomplete/ and complete/ created automatically
 VOLUME ["/config", "/downloads"]
 
 EXPOSE 6789
 
-# WireGuard / OpenVPN in managed mode require NET_ADMIN (and optionally
-# SYS_MODULE to load kernel modules).  Run with:
-#
-#   docker run -d \
-#     --cap-add NET_ADMIN \
-#     --cap-add SYS_MODULE \
-#     --sysctl net.ipv4.conf.all.src_valid_mark=1 \
-#     -v $(pwd)/config.yaml:/config/config.yaml \
-#     -v /downloads:/downloads \
-#     -p 6789:6789 \
-#     nzb-connect
-#
-# If you manage the VPN externally (protocol: "" in config), --cap-add NET_ADMIN
-# is still needed for SO_BINDTODEVICE (binding NNTP connections to an interface).
-
-ENTRYPOINT ["/app/nzb-connect"]
-CMD ["--config", "/config/config.yaml"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
