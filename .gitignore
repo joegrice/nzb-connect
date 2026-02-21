@@ -1,0 +1,17 @@
+# Runtime config — contains secrets; use config.yaml.example as a template
+config.yaml
+
+# Build output
+nzb-connect
+web/dist/
+
+# Go
+*.test
+*.out
+vendor/
+
+# Node
+web/node_modules/
+
+# OS
+.DS_Store

@@ -121,6 +121,15 @@ func (m *Manager) startManaged(conn Connector) {
 
 	log.Printf("VPN manager starting in managed mode (%T)", conn)
 
+	// Respect the user's last explicit connect/disconnect decision.
+	// AutoConnect is nil by default (meaning "do connect"); it is only
+	// set to false when the user explicitly clicks Disconnect.
+	vpnCfg := m.cfg.GetVPN()
+	if vpnCfg.AutoConnect != nil && !*vpnCfg.AutoConnect {
+		log.Println("VPN auto-connect disabled (user disconnected last session) — staying disconnected")
+		return
+	}
+
 	// Attempt initial connection
 	if err := conn.Connect(m.ctx); err != nil {
 		log.Printf("VPN initial connection failed: %v — will retry", err)

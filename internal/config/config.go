@@ -87,11 +87,12 @@ type Config struct {
 }
 
 type VPNConfig struct {
-	Enabled   bool             `yaml:"enabled" json:"enabled"`
-	Protocol  string           `yaml:"protocol" json:"protocol"`   // "wireguard", "openvpn", or "" (passive/legacy)
-	Interface string           `yaml:"interface" json:"interface"` // legacy passive mode only
-	WireGuard *WireGuardConfig `yaml:"wireguard,omitempty" json:"wireguard,omitempty"`
-	OpenVPN   *OpenVPNConfig   `yaml:"openvpn,omitempty" json:"openvpn,omitempty"`
+	Enabled     bool             `yaml:"enabled" json:"enabled"`
+	Protocol    string           `yaml:"protocol" json:"protocol"`     // "wireguard", "openvpn", or "" (passive/legacy)
+	Interface   string           `yaml:"interface" json:"interface"`   // legacy passive mode only
+	AutoConnect *bool            `yaml:"auto_connect,omitempty" json:"auto_connect,omitempty"` // nil = connect (default); false = stay disconnected on restart
+	WireGuard   *WireGuardConfig `yaml:"wireguard,omitempty" json:"wireguard,omitempty"`
+	OpenVPN     *OpenVPNConfig   `yaml:"openvpn,omitempty" json:"openvpn,omitempty"`
 }
 
 type WireGuardConfig struct {

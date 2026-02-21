@@ -663,6 +663,15 @@ func (h *Handler) handleVPNConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Persist: user wants to be connected on next restart.
+	t := true
+	vpnCfg := h.Config.GetVPN()
+	vpnCfg.AutoConnect = &t
+	h.Config.SetVPN(vpnCfg)
+	if err := h.Config.Save(); err != nil {
+		log.Printf("failed to save VPN auto_connect state: %v", err)
+	}
+
 	writeJSON(w, map[string]interface{}{"status": true})
 }
 
@@ -680,6 +689,15 @@ func (h *Handler) handleVPNDisconnect(w http.ResponseWriter, r *http.Request) {
 	if err := h.VPNMgr.Disconnect(); err != nil {
 		writeJSON(w, map[string]interface{}{"status": false, "error": err.Error()})
 		return
+	}
+
+	// Persist: user wants to stay disconnected on next restart.
+	f := false
+	vpnCfg := h.Config.GetVPN()
+	vpnCfg.AutoConnect = &f
+	h.Config.SetVPN(vpnCfg)
+	if err := h.Config.Save(); err != nil {
+		log.Printf("failed to save VPN auto_connect state: %v", err)
 	}
 
 	writeJSON(w, map[string]interface{}{"status": true})

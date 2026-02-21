@@ -1,0 +1,64 @@
+vpn:
+  enabled: true
+
+  # Managed mode: app brings up the tunnel for you.
+  # Set protocol to "wireguard" or "openvpn", fill in the section below.
+  # Leave protocol empty for bind-only mode (you manage the VPN externally).
+  protocol: wireguard
+
+  # Bind-only mode: interface name of your pre-existing VPN.
+  # Only used when protocol is empty.
+  interface: tun0
+
+  # Set to false to start disconnected; toggled automatically by the
+  # Connect / Disconnect button in the UI.
+  # auto_connect: true   # defaults to true when omitted
+
+  wireguard:
+    private_key: YOUR_WIREGUARD_PRIVATE_KEY
+    address: 10.x.x.x/32
+    dns: 10.x.x.x
+    peer_public_key: PEER_PUBLIC_KEY
+    peer_endpoint: vpn.example.com:51820
+    preshared_key: ""          # optional
+    allowed_ips: 0.0.0.0/0
+    persistent_keepalive: 25
+
+  # openvpn:
+  #   remote_host: vpn.example.com
+  #   remote_port: 1194
+  #   protocol: udp          # udp or tcp
+  #   auth_type: userpass    # userpass or certificate
+  #   username: vpnuser
+  #   password: vpnpass
+  #   ca_cert: |
+  #     -----BEGIN CERTIFICATE-----
+  #     ...
+  #     -----END CERTIFICATE-----
+
+servers:
+  - name: primary
+    host: news.example.com
+    port: 563
+    ssl: true
+    username: YOUR_USERNAME
+    password: YOUR_PASSWORD
+    connections: 20
+    enabled: true
+
+paths:
+  # Defaults to ~/Downloads/nzb-connect/{incomplete,complete} when omitted.
+  incomplete: ~/Downloads/nzb-connect/incomplete
+  complete: ~/Downloads/nzb-connect/complete
+  temp: ~/.cache/nzb-connect/tmp
+
+web:
+  port: 6789
+  username: admin
+  password: changeme
+
+postprocess:
+  # Leave empty to let the app find these in $PATH automatically.
+  unrar: ""
+  sevenzip: ""
+  delete_archives: true
