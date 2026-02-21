@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/joe/nzb-connect/internal/config"
-	"github.com/joe/nzb-connect/internal/downloader"
-	"github.com/joe/nzb-connect/internal/nzb"
-	"github.com/joe/nzb-connect/internal/queue"
-	"github.com/joe/nzb-connect/internal/vpn"
+	"nzb-connect/internal/config"
+	"nzb-connect/internal/downloader"
+	"nzb-connect/internal/nzb"
+	"nzb-connect/internal/queue"
+	"nzb-connect/internal/vpn"
 )
 
 // Handler holds shared state for all API handlers.

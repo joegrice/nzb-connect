@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/joe/nzb-connect/internal/nzb"
-	"github.com/joe/nzb-connect/internal/queue"
+	"nzb-connect/internal/nzb"
+	"nzb-connect/internal/queue"
 )
 
 // Engine orchestrates the download of NZB files.

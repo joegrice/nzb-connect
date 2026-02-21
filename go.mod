@@ -1,4 +1,4 @@
-module github.com/joe/nzb-connect
+module nzb-connect
 
 go 1.22.0
 

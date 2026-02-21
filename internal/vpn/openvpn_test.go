@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joe/nzb-connect/internal/config"
+	"nzb-connect/internal/config"
 )
 
 // TestOpenVPNWaitsForInitSequence verifies the fix for Bug 5:

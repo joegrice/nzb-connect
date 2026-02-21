@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/joe/nzb-connect/internal/config"
+	"nzb-connect/internal/config"
 )
 
 // Manager orchestrates VPN connectivity. In managed mode it uses a Connector

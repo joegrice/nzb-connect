@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/joe/nzb-connect/internal/config"
+	"nzb-connect/internal/config"
 )
 
 // WireGuardConnector manages a WireGuard tunnel by shelling out to ip and wg.

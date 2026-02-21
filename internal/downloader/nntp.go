@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/joe/nzb-connect/internal/config"
-	"github.com/joe/nzb-connect/internal/vpn"
+	"nzb-connect/internal/config"
+	"nzb-connect/internal/vpn"
 )
 
 // NNTPConn represents a single NNTP connection.

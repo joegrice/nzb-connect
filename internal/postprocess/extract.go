@@ -14,9 +14,9 @@ import (
 
 	"github.com/nwaples/rardecode/v2"
 
-	"github.com/joe/nzb-connect/internal/config"
-	"github.com/joe/nzb-connect/internal/nzb"
-	"github.com/joe/nzb-connect/internal/queue"
+	"nzb-connect/internal/config"
+	"nzb-connect/internal/nzb"
+	"nzb-connect/internal/queue"
 )
 
 // RAR magic bytes:

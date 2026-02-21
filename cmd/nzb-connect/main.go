@@ -13,13 +13,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/joe/nzb-connect/internal/api"
-	"github.com/joe/nzb-connect/internal/config"
-	"github.com/joe/nzb-connect/internal/downloader"
-	"github.com/joe/nzb-connect/internal/postprocess"
-	"github.com/joe/nzb-connect/internal/queue"
-	"github.com/joe/nzb-connect/internal/vpn"
-	webui "github.com/joe/nzb-connect/web"
+	"nzb-connect/internal/api"
+	"nzb-connect/internal/config"
+	"nzb-connect/internal/downloader"
+	"nzb-connect/internal/postprocess"
+	"nzb-connect/internal/queue"
+	"nzb-connect/internal/vpn"
+	webui "nzb-connect/web"
 )
 
 func main() {

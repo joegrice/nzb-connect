@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/joe/nzb-connect/internal/config"
+	"nzb-connect/internal/config"
 )
 
 // OpenVPNConnector manages an OpenVPN tunnel by spawning the openvpn process.

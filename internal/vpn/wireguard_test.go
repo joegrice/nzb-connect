@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joe/nzb-connect/internal/config"
+	"nzb-connect/internal/config"
 )
 
 // --- latestHandshake parsing ---
