@@ -534,6 +534,7 @@ func (h *Handler) getVPN(w http.ResponseWriter, r *http.Request) {
 	vpnCfg := h.Config.GetVPN()
 
 	resp := map[string]interface{}{
+		"name":      vpnCfg.Name,
 		"enabled":   vpnCfg.Enabled,
 		"protocol":  vpnCfg.Protocol,
 		"interface": vpnCfg.Interface,

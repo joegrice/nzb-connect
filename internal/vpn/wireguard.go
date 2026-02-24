@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -60,18 +59,9 @@ func (w *WireGuardConnector) Connect(ctx context.Context) error {
 		return err
 	}
 
-	// Write temporary config file
-	confFile, err := w.writeTempConfig()
-	if err != nil {
-		w.teardown(ifName)
-		w.setError(fmt.Errorf("write config: %w", err))
-		return err
-	}
-
-	// Apply config
-	err = w.run(ctx, "wg", "setconf", ifName, confFile)
-	os.Remove(confFile) // always delete temp config
-	if err != nil {
+	// Apply config by piping it to wg via stdin (/dev/stdin).
+	// This avoids writing a temp file to /tmp, which AppArmor can restrict.
+	if err := w.setconf(ctx, ifName); err != nil {
 		w.teardown(ifName)
 		w.setError(fmt.Errorf("setconf: %w", err))
 		return err
@@ -171,19 +161,9 @@ func (w *WireGuardConnector) findAvailableName() (string, error) {
 	return "", fmt.Errorf("no available WireGuard interface name (wg0-wg9 all in use)")
 }
 
-func (w *WireGuardConnector) writeTempConfig() (string, error) {
-	f, err := os.CreateTemp("", "wg-*.conf")
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-
-	if err := os.Chmod(f.Name(), 0600); err != nil {
-		os.Remove(f.Name())
-		return "", err
-	}
-
-	// Build wg config — DNS is not a wg setconf directive; handled separately
+// buildConfig returns the wg setconf-compatible config as a string.
+// DNS is intentionally omitted — it is not a wg directive; we set it via resolvconf/systemd-resolved separately.
+func (w *WireGuardConnector) buildConfig() string {
 	conf := "[Interface]\n"
 	conf += fmt.Sprintf("PrivateKey = %s\n", w.cfg.PrivateKey)
 	if w.cfg.ListenPort > 0 {
@@ -208,13 +188,19 @@ func (w *WireGuardConnector) writeTempConfig() (string, error) {
 	if w.cfg.PersistentKeepalive > 0 {
 		conf += fmt.Sprintf("PersistentKeepalive = %d\n", w.cfg.PersistentKeepalive)
 	}
+	return conf
+}
 
-	if _, err := f.WriteString(conf); err != nil {
-		os.Remove(f.Name())
-		return "", err
+// setconf pipes the WireGuard config to "wg setconf <iface> /dev/stdin".
+// Piping avoids writing a temp file to /tmp which AppArmor may block.
+func (w *WireGuardConnector) setconf(ctx context.Context, ifName string) error {
+	cmd := exec.CommandContext(ctx, resolveCmd("wg"), "setconf", ifName, "/dev/stdin")
+	cmd.Stdin = strings.NewReader(w.buildConfig())
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("wg setconf: %w (%s)", err, string(out))
 	}
-
-	return f.Name(), nil
+	return nil
 }
 
 const wgFWMark = 51820
