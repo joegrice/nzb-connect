@@ -245,6 +245,11 @@ func (m *Manager) Stop() {
 		m.cancel()
 	}
 
+	// Wait for the reconnect loop to exit before tearing down the connection.
+	// Without this, the loop can race to call conn.Connect after we Disconnect,
+	// leaving a partially-created interface behind.
+	m.wg.Wait()
+
 	m.mu.RLock()
 	mon := m.monitor
 	conn := m.connector
@@ -259,8 +264,6 @@ func (m *Manager) Stop() {
 			log.Printf("VPN disconnect error: %v", err)
 		}
 	}
-
-	m.wg.Wait()
 }
 
 // IsUp returns whether the VPN interface is currently up.
