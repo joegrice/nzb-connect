@@ -490,15 +490,15 @@ func (w *WireGuardConnector) teardownDNS(ctx context.Context, ifName string) {
 func (w *WireGuardConnector) cleanupStale() {
 	for i := 0; i < 10; i++ {
 		name := fmt.Sprintf("wg%d", i)
-		iface, err := net.InterfaceByName(name)
-		if err != nil {
+		if _, err := net.InterfaceByName(name); err != nil {
 			continue
 		}
-		// If the interface exists but is down, it might be stale from a previous run
-		if iface.Flags&net.FlagUp == 0 {
-			log.Printf("Cleaning up stale WireGuard interface %s", name)
-			w.teardown(name)
-		}
+		// Clean up any wgX interface we find, whether up or down.
+		// In managed mode we own these interfaces, so stale ones from a
+		// previous crash (including SIGKILL where defers didn't run) must
+		// be removed before we create a new one.
+		log.Printf("Cleaning up stale WireGuard interface %s", name)
+		w.teardown(name)
 	}
 }
 
