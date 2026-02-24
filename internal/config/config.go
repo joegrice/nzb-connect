@@ -87,6 +87,7 @@ type Config struct {
 }
 
 type VPNConfig struct {
+	Name        string           `yaml:"name,omitempty" json:"name,omitempty"`
 	Enabled     bool             `yaml:"enabled" json:"enabled"`
 	Protocol    string           `yaml:"protocol" json:"protocol"`     // "wireguard", "openvpn", or "" (passive/legacy)
 	Interface   string           `yaml:"interface" json:"interface"`   // legacy passive mode only

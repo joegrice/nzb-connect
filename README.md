@@ -14,11 +14,34 @@ Compatible with Sonarr, Radarr, and other \*arr apps via the SABnzbd API.
 ## Requirements
 
 - Go 1.22+
-- Node 18+ (to build the UI)
+- Node 18+ and npm (to build the UI)
 - Linux (uses `SO_BINDTODEVICE` for interface binding)
-- For managed WireGuard: `ip`, `wg` in `$PATH`, and root/sudo
-- For managed OpenVPN: `openvpn` in `$PATH`, and root/sudo
+- For managed WireGuard: `wireguard-tools` (`wg`, `ip`) and root/sudo
+- For managed OpenVPN: `openvpn` in `$PATH` and root/sudo
 - `unrar` recommended for fastest RAR extraction (falls back to pure-Go rardecode, then `7z`)
+
+### Installing runtime dependencies (Ubuntu/Debian)
+
+```bash
+# Required for managed WireGuard mode
+sudo apt-get install -y wireguard-tools
+
+# Optional but recommended — faster RAR extraction and encrypted archive support
+sudo apt-get install -y unrar
+
+# Optional — fallback for ZIP/7z and exotic archive formats
+sudo apt-get install -y 7zip
+```
+
+### Installing runtime dependencies (Fedora/RHEL)
+
+```bash
+sudo dnf install -y wireguard-tools
+sudo dnf install -y unrar          # from RPMFusion
+sudo dnf install -y p7zip p7zip-plugins
+```
+
+> **Note:** If you only use bind-only mode (external VPN, `interface: tun0`), none of the above are strictly required. `wireguard-tools` is only needed when `protocol: wireguard` is set and the app is managing the tunnel itself.
 
 ## Quick Start
 

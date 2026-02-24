@@ -152,6 +152,12 @@
             <div class="card">
                 <div class="form-row">
                     <div>
+                        <label>Name (optional)</label>
+                        <input id="vpn-name" placeholder="My VPN Connection">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div>
                         <label>Protocol</label>
                         <select id="vpn-protocol" onchange="vpnProtocolChanged()">
                             <option value="">None (passive — external VPN)</option>
@@ -244,10 +250,12 @@
                     </div>
                 </div>
 
-                <div style="display: flex; gap: 8px; margin-top: 12px;">
+                <div style="display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap;">
                     <button onclick="saveVPN()">Save Configuration</button>
                     <button class="secondary" onclick="vpnConnect()">Connect</button>
                     <button class="danger" onclick="vpnDisconnect()">Disconnect</button>
+                    <input type="file" id="vpn-conf-file" accept=".conf,.ovpn" style="display:none" onchange="handleConfFileSelect(event)">
+                    <button class="secondary" onclick="document.getElementById('vpn-conf-file').click()">Import .conf / .ovpn</button>
                 </div>
                 <div id="vpn-msg" style="margin-top: 8px; font-size: 0.85rem;"></div>
             </div>
@@ -267,6 +275,24 @@
                 </div>
                 <button onclick="addNZBURL()" style="margin-top: 8px;">Add URL</button>
                 <div id="add-msg" style="margin-top: 8px; font-size: 0.85rem;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- VPN import confirmation modal -->
+    <div id="vpn-import-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.75); z-index:200; justify-content:center; align-items:center;">
+        <div style="background:#16213e; border:1px solid #333; border-radius:8px; padding:24px; max-width:480px; width:90%;">
+            <h3 style="color:#e94560; margin-bottom:16px;">Import VPN Configuration</h3>
+            <div id="vpn-import-summary" style="color:#aaa; font-size:0.85rem; margin-bottom:16px; line-height:1.7;"></div>
+            <div class="form-row">
+                <div>
+                    <label>Connection Name</label>
+                    <input id="vpn-import-name" placeholder="My VPN">
+                </div>
+            </div>
+            <div style="display:flex; gap:8px; margin-top:16px;">
+                <button onclick="confirmVPNImport()">Import</button>
+                <button class="secondary" onclick="cancelVPNImport()">Cancel</button>
             </div>
         </div>
     </div>
@@ -558,6 +584,7 @@
         function updateVPN() {
             fetchJSON('/api/vpn').then(data => {
                 vpnConfigCache = data;
+                document.getElementById('vpn-name').value = data.name || '';
                 document.getElementById('vpn-protocol').value = data.protocol || '';
                 document.getElementById('vpn-interface').value = data.interface || '';
                 vpnProtocolChanged();
@@ -638,6 +665,7 @@
         function buildVPNPayload() {
             const proto = document.getElementById('vpn-protocol').value;
             const payload = {
+                name: document.getElementById('vpn-name').value.trim(),
                 enabled: proto !== '',
                 protocol: proto,
                 interface: document.getElementById('vpn-interface').value.trim(),
@@ -761,6 +789,148 @@
             const d = document.createElement('div');
             d.textContent = s;
             return d.innerHTML;
+        }
+
+        // ── VPN config file import ───────────────────────────────────────────
+
+        function parseSuggestedName(filename) {
+            let name = filename.replace(/\.(conf|ovpn)$/i, '');
+            name = name.replace(/[_-]+/g, ' ').trim();
+            name = name.replace(/\b\w/g, c => c.toUpperCase());
+            return name || 'My VPN';
+        }
+
+        // Parse WireGuard .conf (INI format).  Returns { Interface:{}, Peer:{} }
+        function parseWireGuardConf(content) {
+            const result = {};
+            let section = null;
+            for (const raw of content.split('\n')) {
+                const line = raw.trim();
+                if (!line || line.startsWith('#')) continue;
+                const sm = line.match(/^\[(\w+)\]$/);
+                if (sm) { section = sm[1]; if (!result[section]) result[section] = {}; continue; }
+                if (!section) continue;
+                const eq = line.indexOf('=');
+                if (eq > 0) {
+                    result[section][line.substring(0, eq).trim()] = line.substring(eq + 1).trim();
+                }
+            }
+            return result;
+        }
+
+        // Parse OpenVPN .ovpn.  Block directives (<ca>…</ca>) become string values.
+        function parseOpenVPNConf(content) {
+            const result = {};
+            let inBlock = null, blockLines = [];
+            for (const raw of content.split('\n')) {
+                const line = raw.trim();
+                if (!line || line.startsWith('#') || line.startsWith(';')) continue;
+                // Block end
+                const be = line.match(/^<\/(\w[\w-]*)>$/);
+                if (be && inBlock === be[1]) {
+                    result[inBlock] = blockLines.join('\n');
+                    inBlock = null; blockLines = [];
+                    continue;
+                }
+                if (inBlock) { blockLines.push(raw); continue; }
+                // Block start
+                const bs = line.match(/^<(\w[\w-]*)>$/);
+                if (bs) { inBlock = bs[1]; blockLines = []; continue; }
+                // Regular directive
+                const sp = line.search(/\s/);
+                if (sp > 0) {
+                    result[line.substring(0, sp)] = line.substring(sp + 1).trim();
+                } else {
+                    result[line] = true;   // flag directive with no value
+                }
+            }
+            return result;
+        }
+
+        function handleConfFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const content = e.target.result;
+                let type, parsed, summary;
+                if (content.includes('[Interface]')) {
+                    type = 'wireguard';
+                    parsed = parseWireGuardConf(content);
+                    const iface = parsed.Interface || {};
+                    const peer  = parsed.Peer || {};
+                    summary = '<strong>Detected: WireGuard</strong><br>' +
+                        (iface.Address  ? 'Address: '  + esc(iface.Address)  + '<br>' : '') +
+                        (peer.Endpoint  ? 'Endpoint: ' + esc(peer.Endpoint)  + '<br>' : '');
+                } else {
+                    type = 'openvpn';
+                    parsed = parseOpenVPNConf(content);
+                    const remote = parsed.remote ? parsed.remote.split(/\s+/) : [];
+                    summary = '<strong>Detected: OpenVPN</strong><br>' +
+                        (remote[0] ? 'Remote: ' + esc(remote[0]) + (remote[1] ? ':' + esc(remote[1]) : '') + '<br>' : '') +
+                        (parsed.proto ? 'Protocol: ' + esc(parsed.proto) + '<br>' : '');
+                }
+                window._pendingImport = { type, data: parsed };
+                document.getElementById('vpn-import-name').value = parseSuggestedName(file.name);
+                document.getElementById('vpn-import-summary').innerHTML = summary;
+                document.getElementById('vpn-import-modal').style.display = 'flex';
+            };
+            reader.readAsText(file);
+        }
+
+        function confirmVPNImport() {
+            if (!window._pendingImport) return;
+            const { type, data } = window._pendingImport;
+            const name = document.getElementById('vpn-import-name').value.trim();
+
+            document.getElementById('vpn-name').value = name;
+
+            if (type === 'wireguard') {
+                document.getElementById('vpn-protocol').value = 'wireguard';
+                vpnProtocolChanged();
+                const iface = data.Interface || {}, peer = data.Peer || {};
+                if (iface.PrivateKey)          document.getElementById('wg-private-key').value      = iface.PrivateKey;
+                if (iface.Address)             document.getElementById('wg-address').value           = iface.Address;
+                if (iface.DNS)                 document.getElementById('wg-dns').value               = iface.DNS;
+                if (iface.ListenPort)          document.getElementById('wg-listen-port').value       = iface.ListenPort;
+                if (peer.PublicKey)            document.getElementById('wg-peer-public-key').value   = peer.PublicKey;
+                if (peer.Endpoint)             document.getElementById('wg-peer-endpoint').value     = peer.Endpoint;
+                if (peer.PresharedKey)         document.getElementById('wg-preshared-key').value     = peer.PresharedKey;
+                if (peer.AllowedIPs)           document.getElementById('wg-allowed-ips').value       = peer.AllowedIPs;
+                if (peer.PersistentKeepalive)  document.getElementById('wg-keepalive').value         = peer.PersistentKeepalive;
+            } else if (type === 'openvpn') {
+                document.getElementById('vpn-protocol').value = 'openvpn';
+                vpnProtocolChanged();
+                if (data.remote) {
+                    const parts = data.remote.trim().split(/\s+/);
+                    if (parts[0]) document.getElementById('ovpn-remote-host').value = parts[0];
+                    if (parts[1]) document.getElementById('ovpn-remote-port').value = parts[1];
+                }
+                if (data.proto) {
+                    document.getElementById('ovpn-protocol').value = data.proto.includes('tcp') ? 'tcp' : 'udp';
+                }
+                if (data.dev) {
+                    document.getElementById('ovpn-device-type').value = data.dev.startsWith('tap') ? 'tap' : 'tun';
+                }
+                const authType = (data['auth-user-pass'] !== undefined) ? 'userpass' : 'certificate';
+                document.getElementById('ovpn-auth-type').value = authType;
+                ovpnAuthChanged();
+                if (data.ca)         document.getElementById('ovpn-ca-cert').value     = data.ca.trim();
+                if (data.cert)       document.getElementById('ovpn-client-cert').value  = data.cert.trim();
+                if (data.key)        document.getElementById('ovpn-client-key').value   = data.key.trim();
+                if (data['tls-auth'])document.getElementById('ovpn-tls-auth').value    = data['tls-auth'].trim();
+                if (data.cipher)     document.getElementById('ovpn-cipher').value       = data.cipher;
+                if (data.auth)       document.getElementById('ovpn-auth').value         = data.auth;
+                if (data.compress)        document.getElementById('ovpn-compress').value = data.compress;
+                else if (data['comp-lzo'] !== undefined) document.getElementById('ovpn-compress').value = 'lzo';
+            }
+            cancelVPNImport();
+        }
+
+        function cancelVPNImport() {
+            document.getElementById('vpn-import-modal').style.display = 'none';
+            document.getElementById('vpn-conf-file').value = '';
+            window._pendingImport = null;
         }
 
         // Initial load and polling
